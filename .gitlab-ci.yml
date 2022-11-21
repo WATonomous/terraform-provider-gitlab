@@ -132,6 +132,7 @@ go:test:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
     GITLAB_BASE_URL: http://docker:8080/api/v4
+    TF_LOG: debug
   # Use the CI container we build
   image: registry.gitlab.com/gitlab-org/terraform-provider-gitlab:${IMAGE_TAG}
   before_script:

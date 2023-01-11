@@ -28,7 +28,7 @@ var testGitlabConfig = client.Config{
 	Insecure:      false,
 	ClientCert:    "",
 	ClientKey:     "",
-	EarlyAuthFail: true,
+	EarlyAuthFail: false,
 }
 
 var TestGitlabClient *gitlab.Client

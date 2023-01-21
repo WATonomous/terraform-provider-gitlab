@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/xanzy/go-gitlab"
-	"gitlab.com/gitlab-org/terraform-provider-gitlab/internal/provider/client"
+	"gitlab.com/gitlab-org/terraform-provider-gitlab/internal/provider/api"
 	"gitlab.com/gitlab-org/terraform-provider-gitlab/internal/provider/utils"
 )
 
@@ -197,7 +197,7 @@ func (d *gitlabPagesDomainResource) Read(ctx context.Context, req resource.ReadR
 
 	pagesDomain, _, err := d.client.PagesDomains.GetPagesDomain(projectID, domain)
 	if err != nil {
-		if client.Is404(err) {
+		if api.Is404(err) {
 			tflog.Debug(ctx, "pages domain doesn't exist, removing from state", map[string]interface{}{
 				"url": data.URL, "project": data.Project,
 			})

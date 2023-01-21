@@ -39,12 +39,9 @@ The `gitlab_pages_domain` resource allows connecting custom domains and TLS cert
 <a id="nestedblock--certificate"></a>
 ### Nested Schema for `certificate`
 
-Required:
-
-- `certificate` (String) The certificate in PEM format with intermediates following in most specific to least specific order.
-
 Optional:
 
+- `certificate` (String) The certificate in PEM format with intermediates following in most specific to least specific order.
 - `expired` (Boolean) Whether the certificate is expired.
 
 

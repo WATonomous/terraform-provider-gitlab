@@ -10,7 +10,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
-	"gitlab.com/gitlab-org/terraform-provider-gitlab/internal/provider/client"
+	"gitlab.com/gitlab-org/terraform-provider-gitlab/internal/provider/api"
 	"gitlab.com/gitlab-org/terraform-provider-gitlab/internal/provider/testutil"
 )
 
@@ -79,7 +79,7 @@ func testAcc_GitlabPagesDomain_CheckDestroy(projectID int, domain string) resour
 		if err == nil {
 			return errors.New("Pages Domain still exists")
 		}
-		if !client.Is404(err) {
+		if !api.Is404(err) {
 			return fmt.Errorf("Error calling API to get the Pages Domain: %w", err)
 		}
 		return nil

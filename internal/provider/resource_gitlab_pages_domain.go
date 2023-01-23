@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/boolvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/xanzy/go-gitlab"
 	"gitlab.com/gitlab-org/terraform-provider-gitlab/internal/provider/api"
@@ -36,18 +39,16 @@ type gitlabPagesDomainResource struct {
 }
 
 type gitLabPagesDomainResourceModel struct {
-	ID              string `tfsdk:"id"`
-	Domain          string `tfsdk:"domain"`
-	Project         string `tfsdk:"project"`
-	AutoSslEnabled  bool   `tfsdk:"auto_ssl_enabled"`
-	Key             string `tfsdk:"key"`
-	URL             string `tfsdk:"url"`
-	CertificateData struct {
-		Certificate string `tfsdk:"certificate"`
-		Expired     bool   `tfsdk:"expired"`
-	} `tfsdk:"certificate"`
-	Verified           bool   `tfsdk:"verified"`
-	VerificationString string `tfsdk:"verification_code"`
+	ID                 types.String `tfsdk:"id"`
+	Domain             types.String `tfsdk:"domain"`
+	Project            types.String `tfsdk:"project"`
+	AutoSslEnabled     types.Bool   `tfsdk:"auto_ssl_enabled"`
+	Key                types.String `tfsdk:"key"`
+	URL                types.String `tfsdk:"url"`
+	Verified           types.Bool   `tfsdk:"verified"`
+	VerificationString types.String `tfsdk:"verification_code"`
+	Certificate        types.String `tfsdk:"certificate"`
+	Expired            types.Bool   `tfsdk:"expired"`
 }
 
 // Metadata returns the resource name
@@ -85,6 +86,11 @@ func (d *gitlabPagesDomainResource) Schema(_ context.Context, _ resource.SchemaR
 			"auto_ssl_enabled": schema.BoolAttribute{
 				MarkdownDescription: "Enables [automatic generation](https://docs.gitlab.com/ee/user/project/pages/custom_domains_ssl_tls_certification/lets_encrypt_integration.html) of SSL certificates issued by Let’s Encrypt for custom domains.",
 				Optional:            true,
+				Validators: []validator.Bool{boolvalidator.ConflictsWith(path.Expressions{
+					path.MatchRoot("certificate"),
+				}...)},
+				//This can be set manually, or it will be computed to False
+				Computed: true,
 			},
 			"key": schema.StringAttribute{
 				MarkdownDescription: "The certificate key in PEM format.",
@@ -103,24 +109,18 @@ func (d *gitlabPagesDomainResource) Schema(_ context.Context, _ resource.SchemaR
 				Computed:            true,
 				Sensitive:           true,
 			},
-		},
-		Blocks: map[string]schema.Block{
-			// all blocks are `optional`, even when not set as such.
-			"certificate": schema.SingleNestedBlock{
-				Attributes: map[string]schema.Attribute{
-					"certificate": schema.StringAttribute{
-						MarkdownDescription: "The certificate in PEM format with intermediates following in most specific to least specific order.",
-						Optional:            true,
-						Computed:            true,
-						PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
-					},
-					"expired": schema.BoolAttribute{
-						MarkdownDescription: "Whether the certificate is expired.",
-						Optional:            true,
-						Computed:            true,
-						PlanModifiers:       []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
-					},
-				},
+			"certificate": schema.StringAttribute{
+				MarkdownDescription: "The certificate in PEM format with intermediates following in most specific to least specific order.",
+				Validators: []validator.String{stringvalidator.ConflictsWith(path.Expressions{
+					path.MatchRoot("auto_ssl_enabled"),
+				}...)},
+				Optional: true,
+				Computed: true,
+			},
+			"expired": schema.BoolAttribute{
+				MarkdownDescription: "Whether the certificate is expired.",
+				Optional:            true,
+				Computed:            true,
 			},
 		},
 	}
@@ -143,21 +143,24 @@ func (d *gitlabPagesDomainResource) Create(ctx context.Context, req resource.Cre
 		return
 	}
 
+	//Local variables for easier reference
+	projectID := data.Project.ValueString()
+
 	// Create our resource
 	options := &gitlab.CreatePagesDomainOptions{
-		Domain: &data.Domain,
+		Domain: gitlab.String(data.Domain.ValueString()),
 	}
-	if data.AutoSslEnabled {
-		options.AutoSslEnabled = &data.AutoSslEnabled
+	if !data.AutoSslEnabled.IsNull() && !data.AutoSslEnabled.IsUnknown() {
+		options.AutoSslEnabled = gitlab.Bool(data.AutoSslEnabled.ValueBool())
 	}
-	if data.CertificateData.Certificate != "" {
-		options.Certificate = &data.CertificateData.Certificate
+	if !data.Certificate.IsNull() && !data.Certificate.IsUnknown() {
+		options.Certificate = gitlab.String(data.Certificate.ValueString())
 	}
-	if data.Key != "" {
-		options.Key = &data.Key
+	if !data.Key.IsNull() && !data.Key.IsUnknown() {
+		options.Key = gitlab.String(data.Key.ValueString())
 	}
 
-	pagesDomain, _, err := d.client.PagesDomains.CreatePagesDomain(data.Project, options)
+	pagesDomain, _, err := d.client.PagesDomains.CreatePagesDomain(data.Project.ValueString(), options)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error creating pages domain for project %s", data.Project),
@@ -169,7 +172,7 @@ func (d *gitlabPagesDomainResource) Create(ctx context.Context, req resource.Cre
 	data.pagesDomainToStateModel(pagesDomain)
 
 	// Create the ID attribute (used for imports, among other things)
-	data.ID = utils.BuildTwoPartID(&data.Project, &data.Domain)
+	data.ID = types.StringValue(utils.BuildTwoPartID(&projectID, gitlab.String(data.Domain.ValueString())))
 
 	tflog.Debug(ctx, "created pages domain", map[string]interface{}{
 		"url": data.URL, "project": data.Project,
@@ -186,7 +189,7 @@ func (d *gitlabPagesDomainResource) Read(ctx context.Context, req resource.ReadR
 		return
 	}
 
-	projectID, domain, err := utils.ParseTwoPartID(data.ID)
+	projectID, domain, err := utils.ParseTwoPartID(data.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Invalid resource ID format",
@@ -222,17 +225,17 @@ func (d *gitlabPagesDomainResource) Update(ctx context.Context, req resource.Upd
 
 	// Create our resource
 	options := &gitlab.UpdatePagesDomainOptions{}
-	if data.AutoSslEnabled {
-		options.AutoSslEnabled = &data.AutoSslEnabled
+	if !data.AutoSslEnabled.IsNull() && !data.AutoSslEnabled.IsUnknown() {
+		options.AutoSslEnabled = gitlab.Bool(data.AutoSslEnabled.ValueBool())
 	}
-	if data.CertificateData.Certificate != "" {
-		options.Certificate = &data.CertificateData.Certificate
+	if !data.Certificate.IsNull() && !data.Certificate.IsUnknown() {
+		options.Certificate = gitlab.String(data.Certificate.ValueString())
 	}
-	if data.Key != "" {
-		options.Key = &data.Key
+	if !data.Key.IsNull() && !data.Key.IsUnknown() {
+		options.Key = gitlab.String(data.Key.ValueString())
 	}
 
-	pagesDomain, _, err := d.client.PagesDomains.UpdatePagesDomain(data.Project, data.Domain, options)
+	pagesDomain, _, err := d.client.PagesDomains.UpdatePagesDomain(data.Project.ValueString(), data.Domain.ValueString(), options)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error creating pages domain for project %s", data.Project),
@@ -244,7 +247,7 @@ func (d *gitlabPagesDomainResource) Update(ctx context.Context, req resource.Upd
 	data.pagesDomainToStateModel(pagesDomain)
 
 	// Create the ID attribute (used for imports, among other things)
-	data.ID = utils.BuildTwoPartID(&data.Project, &data.Domain)
+	data.ID = types.StringValue(utils.BuildTwoPartID(gitlab.String(data.Project.ValueString()), gitlab.String(data.Domain.ValueString())))
 
 	tflog.Debug(ctx, "updated pages domain", map[string]interface{}{
 		"url": data.URL, "project": data.Project,
@@ -261,7 +264,7 @@ func (d *gitlabPagesDomainResource) Delete(ctx context.Context, req resource.Del
 		return
 	}
 
-	projectID, domain, err := utils.ParseTwoPartID(data.ID)
+	projectID, domain, err := utils.ParseTwoPartID(data.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Invalid resource ID format",
@@ -284,14 +287,11 @@ func (r *gitlabPagesDomainResource) ImportState(ctx context.Context, req resourc
 
 func (r *gitLabPagesDomainResourceModel) pagesDomainToStateModel(pages *gitlab.PagesDomain) {
 	// attributes from api response
-	r.Domain = pages.Domain
-	r.AutoSslEnabled = pages.AutoSslEnabled
-	r.URL = pages.URL
-	r.VerificationString = pages.VerificationCode
-	r.Verified = pages.Verified
-
-	r.CertificateData.Expired = pages.Certificate.Expired
-
+	r.Domain = types.StringValue(pages.Domain)
+	r.AutoSslEnabled = types.BoolValue(pages.AutoSslEnabled)
+	r.URL = types.StringValue(pages.URL)
+	r.VerificationString = types.StringValue(pages.VerificationCode)
+	r.Verified = types.BoolValue(pages.Verified)
+	r.Expired = types.BoolValue(pages.Certificate.Expired)
 	//Not yet implemented in go-gitlab.
-	//r.CertificateData.Certificate = pages.Certificate.Certificate
 }

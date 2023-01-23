@@ -18,7 +18,7 @@ func TestAcc_GitlabPagesDomain_basic(t *testing.T) {
 
 	// Set up project environment.
 	project := testutil.CreateProject(t)
-	domain := "example.com"
+	domain := fmt.Sprintf("%d.example.com", project.ID)
 
 	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -30,6 +30,8 @@ func TestAcc_GitlabPagesDomain_basic(t *testing.T) {
 				resource "gitlab_pages_domain" "this" {
 					project     = %d
 					domain      = "%s"
+
+					auto_ssl_enabled = true
 				}`, project.ID, domain),
 
 				Check: resource.ComposeTestCheckFunc(
@@ -50,12 +52,8 @@ func TestAcc_GitlabPagesDomain_basic(t *testing.T) {
 					project     = %d
 					domain      = %s
 
-					auto_ssl_enabled = true
+					auto_ssl_enabled = false
 					key              = "example-key"
-
-					certificate {
-						certificate = "example-certificate"
-					}
 				}`, project.ID, domain),
 
 				// Check computed attributes.

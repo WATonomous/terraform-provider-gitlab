@@ -23,7 +23,7 @@ var _ = registerResource("gitlab_group_membership", func() *schema.Resource {
 
 **Upstream API**: [GitLab REST API docs](https://docs.gitlab.com/ee/api/members.html)`,
 
-		CreateContext: resourceGitlabGroupMembershipCreate,
+		CreateContext: resourceGitlabGroupMembershipUpdate,
 		ReadContext:   resourceGitlabGroupMembershipRead,
 		UpdateContext: resourceGitlabGroupMembershipUpdate,
 		DeleteContext: resourceGitlabGroupMembershipDelete,

@@ -23,9 +23,9 @@ var _ = registerResource("gitlab_group_membership", func() *schema.Resource {
 
 **Upstream API**: [GitLab REST API docs](https://docs.gitlab.com/ee/api/members.html)`,
 
-		CreateContext: resourceGitlabGroupMembershipUpdate,
+		CreateContext: resourceGitlabGroupMembershipUpsert,
 		ReadContext:   resourceGitlabGroupMembershipRead,
-		UpdateContext: resourceGitlabGroupMembershipUpdate,
+		UpdateContext: resourceGitlabGroupMembershipUpsert,
 		DeleteContext: resourceGitlabGroupMembershipDelete,
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
@@ -132,6 +132,29 @@ func groupIdAndUserIdFromId(id string) (string, int, error) {
 	return groupId, userId, e
 }
 
+func resourceGitlabGroupMembershipUpsert(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	client := meta.(*gitlab.Client)
+
+	userId := d.Get("user_id").(int)
+	groupId := d.Get("group_id").(string)
+
+	log.Printf("[DEBUG] upsert gitlab group groupMember for %d in %s", userId, groupId)
+
+	_, _, err := client.GroupMembers.GetGroupMember(groupId, userId, gitlab.WithContext(ctx))
+	if err != nil && api.Is404(err) {
+		// The membership does not exist, create it
+		return resourceGitlabGroupMembershipCreate(ctx, d, meta)
+	}
+
+	if err != nil {
+		// Legit error, throw it
+		return diag.FromErr(err)
+	}
+
+	// The membership exists, update it
+	return resourceGitlabGroupMembershipUpdate(ctx, d, meta)
+}
+
 func resourceGitlabGroupMembershipUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*gitlab.Client)
 
@@ -146,9 +169,16 @@ func resourceGitlabGroupMembershipUpdate(ctx context.Context, d *schema.Resource
 	}
 	log.Printf("[DEBUG] update gitlab group membership %v for %s", userId, groupId)
 
-	_, _, err := client.GroupMembers.EditGroupMember(groupId, userId, &options, gitlab.WithContext(ctx))
+	groupMember, _, err := client.GroupMembers.EditGroupMember(groupId, userId, &options, gitlab.WithContext(ctx))
 	if err != nil {
 		return diag.FromErr(err)
+	}
+
+
+	if d.Id() == "" {
+		// Membership exists, but not created using this Terraform setup.
+		userIdString := strconv.Itoa(groupMember.ID)
+		d.SetId(utils.BuildTwoPartID(&groupId, &userIdString))
 	}
 
 	return resourceGitlabGroupMembershipRead(ctx, d, meta)
